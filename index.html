@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>核電気推進の量子モデル</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: #07111f;
+      color: #e7eef8;
+      font-synthesis: none;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 28px 18px 40px; }
+    main { max-width: 1080px; margin: auto; }
+    h1 { margin: 0 0 8px; font-size: clamp(1.6rem, 4vw, 2.4rem); }
+    h2 { margin: 0 0 14px; font-size: 1.2rem; }
+    p { color: #aab9ce; line-height: 1.55; }
+    .intro { max-width: 780px; margin: 0 0 22px; }
+    .controls, .cards { display: grid; gap: 16px; }
+    .controls { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); margin-bottom: 16px; }
+    .cards { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+    .panel {
+      background: #101e30;
+      border: 1px solid #263a52;
+      border-radius: 14px;
+      padding: 18px;
+      box-shadow: 0 10px 24px #0002;
+    }
+    .control label { display: flex; justify-content: space-between; gap: 8px; font-weight: 650; }
+    output { color: #72d6cf; font-variant-numeric: tabular-nums; }
+    input[type="range"] { width: 100%; margin: 14px 0 4px; accent-color: #54c9c1; }
+    .subtle, .note { font-size: .88rem; color: #9fb0c6; }
+    .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 16px 0; }
+    .stat { background: #0a1625; padding: 12px; border-radius: 10px; }
+    .stat span { display: block; color: #9fb0c6; font-size: .82rem; }
+    .stat strong { font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+    canvas { display: block; width: 100%; height: 150px; background: #091524; border-radius: 9px; }
+    .quantum { margin-top: 16px; }
+    .bar { height: 12px; background: #20344b; border-radius: 99px; overflow: hidden; margin: 8px 0 4px; }
+    .bar > div { height: 100%; width: 0; background: linear-gradient(90deg, #51c7bf, #8b8cf5); transition: width .1s; }
+    .readout { display: flex; justify-content: space-between; gap: 10px; font-size: .88rem; }
+    .buttons { display: flex; gap: 8px; margin: 14px 0; }
+    button {
+      border: 1px solid #38516d; border-radius: 8px; padding: 8px 13px;
+      background: #172a40; color: #e7eef8; font: inherit; cursor: pointer;
+    }
+    button:hover { background: #213b58; }
+    .warning { border-left: 3px solid #f0b857; padding-left: 12px; margin-top: 18px; }
+    footer { margin-top: 18px; font-size: .82rem; color: #91a2b8; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>核電気推進の量子モデル</h1>
+  <p class="intro">原子炉の熱を電力に変え、その電力でイオン推進器を動かす「核電気推進」を対象にした教育用デモです。理想化した推進性能の見積もりと、電力に応じて駆動される二準位量子系の時間変化を表示します。</p>
+
+  <section class="panel controls" aria-label="シミュレーション条件">
+    <div class="control">
+      <label for="reactorPower">原子炉の熱出力 <output id="powerOut"></output></label>
+      <input id="reactorPower" type="range" min="1" max="300" step="1" value="100">
+      <div class="subtle">原子炉から電力変換系に入る熱出力</div>
+    </div>
+    <div class="control">
+      <label for="conversion">熱から電力への変換効率 <output id="conversionOut"></output></label>
+      <input id="conversion" type="range" min="10" max="40" step="1" value="25">
+      <div class="subtle">原子炉の熱出力から得られる電力の割合</div>
+    </div>
+    <div class="control">
+      <label for="flow">推進剤質量流量 <output id="flowOut"></output></label>
+      <input id="flow" type="range" min="0.05" max="2" step="0.05" value="0.5">
+      <div class="subtle">イオン推進器に供給するキセノンの流量</div>
+    </div>
+    <div class="control">
+      <label for="thrusterEfficiency">推進器効率 <output id="efficiencyOut"></output></label>
+      <input id="thrusterEfficiency" type="range" min="30" max="80" step="1" value="65">
+      <div class="subtle">電力のうち噴流の運動エネルギーになる割合</div>
+    </div>
+  </section>
+
+  <div class="buttons">
+    <button id="toggle" type="button">一時停止</button>
+    <button id="reset" type="button">時間をリセット</button>
+  </div>
+
+  <section class="cards">
+    <article class="panel">
+      <h2>核電気推進の理想化した性能</h2>
+      <p class="subtle">原子炉 → 発電 → イオン推進器、のエネルギー変換を一段ずつ見積もります。</p>
+      <div class="stats">
+        <div class="stat"><span>推進器に供給される電力</span><strong id="electricPower">—</strong></div>
+        <div class="stat"><span>噴流の運動エネルギー出力</span><strong id="jetPower">—</strong></div>
+        <div class="stat"><span>理想排気速度 / 比推力</span><strong id="exhaustVelocity">—</strong></div>
+        <div class="stat"><span>理想推力</span><strong id="thrust">—</strong></div>
+        <div class="stat"><span>等価加速電圧（Xe⁺）</span><strong id="accelerationVoltage">—</strong></div>
+        <div class="stat"><span>二準位量子モデル確率</span><strong id="quantumValue">—</strong></div>
+      </div>
+      <h2 class="quantum">量子状態の時間発展</h2>
+      <canvas id="quantumChart" aria-label="二準位系の励起状態確率の時間変化"></canvas>
+      <div class="quantum">
+        <div class="readout"><span>励起状態の確率</span><strong id="quantumProb">—</strong></div>
+        <div class="bar"><div id="quantumBar"></div></div>
+        <div class="note">一定の駆動を受ける二準位系のラビ振動を簡略計算</div>
+      </div>
+    </article>
+  </section>
+
+  <p class="warning"><strong>注意：</strong>この量子計算は推進器内の実際のキセノン電離・プラズマ過程を解くものではなく、電力に応じた駆動強度を持つ二準位系のデモです。性能値は全キセノン流量が理想的に加速される仮定で、電力変換損失・放熱器・遮蔽・寿命・質量などを含みません。</p>
+  <footer>物理定数：素電荷、キセノン原子質量、標準重力加速度を使用。単位は SI。</footer>
+</main>
+<script>
+(() => {
+  "use strict";
+  const e = 1.602176634e-19;
+  const g0 = 9.80665;
+  const xenonMass = 131.293 * 1.66053906660e-27;
+  const reactorPower = document.querySelector("#reactorPower");
+  const conversion = document.querySelector("#conversion");
+  const thrusterEfficiency = document.querySelector("#thrusterEfficiency");
+  const flow = document.querySelector("#flow");
+  const history = [];
+  let time = 0;
+  let running = true;
+  let lastFrame = 0;
+
+  const fmt = (value, digits = 2) => new Intl.NumberFormat("ja-JP", {
+    maximumFractionDigits: digits
+  }).format(value);
+  const setText = (selector, value) => { document.querySelector(selector).textContent = value; };
+
+  function drawChart(canvasId, values, color) {
+    const canvas = document.querySelector(canvasId);
+    const rect = canvas.getBoundingClientRect();
+    const scale = window.devicePixelRatio || 1;
+    canvas.width = Math.max(1, Math.floor(rect.width * scale));
+    canvas.height = Math.max(1, Math.floor(rect.height * scale));
+    const ctx = canvas.getContext("2d");
+    ctx.scale(scale, scale);
+    const w = rect.width;
+    const h = rect.height;
+    ctx.clearRect(0, 0, w, h);
+    ctx.strokeStyle = "#29415b";
+    ctx.lineWidth = 1;
+    for (let i = 1; i < 4; i++) {
+      const y = h * i / 4;
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+    }
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    values.forEach((v, i) => {
+      const x = values.length < 2 ? 0 : (i / (values.length - 1)) * w;
+      const y = h - Math.max(0, Math.min(1, v)) * h;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
+
+  function update() {
+    const thermalPower = Number(reactorPower.value) * 1e6;
+    const electricPower = thermalPower * Number(conversion.value) / 100;
+    const efficiency = Number(thrusterEfficiency.value) / 100;
+    const mdot = Number(flow.value) / 1000;
+    const jetPower = electricPower * efficiency;
+    const exhaustVelocity = Math.sqrt(2 * jetPower / mdot);
+    const thrust = mdot * exhaustVelocity;
+    const accelerationVoltage = xenonMass * exhaustVelocity ** 2 / (2 * e);
+    const omega = 0.35 + 1.65 * Math.sqrt(electricPower / 25e6);
+    const quantumProbability = Math.pow(Math.sin(omega * time / 2), 2);
+
+    setText("#powerOut", `${fmt(Number(reactorPower.value), 0)} MWₜₕ`);
+    setText("#conversionOut", `${fmt(Number(conversion.value), 0)}%`);
+    setText("#flowOut", `${fmt(Number(flow.value), 2)} g/s`);
+    setText("#efficiencyOut", `${fmt(efficiency * 100, 0)}%`);
+    setText("#electricPower", `${fmt(electricPower / 1e6, 2)} MWₑ`);
+    setText("#jetPower", `${fmt(jetPower / 1e6, 2)} MW`);
+    setText("#exhaustVelocity", `${fmt(exhaustVelocity / 1000, 2)} km/s · ${fmt(exhaustVelocity / g0, 0)} s`);
+    setText("#thrust", `${fmt(thrust, 2)} N`);
+    setText("#accelerationVoltage", `${fmt(accelerationVoltage / 1000, 1)} kV`);
+    setText("#quantumValue", `${fmt(quantumProbability * 100, 1)}%`);
+    setText("#quantumProb", `${fmt(quantumProbability * 100, 1)}%`);
+    document.querySelector("#quantumBar").style.width = `${quantumProbability * 100}%`;
+
+    history.push(quantumProbability);
+    if (history.length > 180) history.shift();
+    drawChart("#quantumChart", history, "#9d9cff");
+  }
+
+  function frame(now) {
+    if (running && now - lastFrame >= 100) {
+      time += (now - lastFrame) / 1000;
+      lastFrame = now;
+      update();
+    } else if (!lastFrame) {
+      lastFrame = now;
+      update();
+    }
+    requestAnimationFrame(frame);
+  }
+  [reactorPower, conversion, thrusterEfficiency, flow].forEach(input => input.addEventListener("input", update));
+  document.querySelector("#toggle").addEventListener("click", event => {
+    running = !running;
+    event.currentTarget.textContent = running ? "一時停止" : "再開";
+    lastFrame = 0;
+  });
+  document.querySelector("#reset").addEventListener("click", () => {
+    time = 0;
+    history.length = 0;
+    lastFrame = 0;
+    update();
+  });
+  window.addEventListener("resize", update);
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
